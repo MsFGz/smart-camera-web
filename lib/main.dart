@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 
-void main() {
+late List<CameraDescription> cameras;
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  cameras = await availableCameras();
   setUrlStrategy(PathUrlStrategy());
   runApp(const CameraApp());
 }
@@ -14,10 +18,7 @@ class CameraApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Smart Camera',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        brightness: Brightness.dark,
-      ),
+      theme: ThemeData.dark(),
       home: const CameraScreen(),
     );
   }
@@ -31,55 +32,100 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> {
+  CameraController? controller;
   bool _isTorchOn = false;
   bool _isProcessing = false;
   double _lightLevel = 0.0;
+  String? imagePath;
 
   @override
   void initState() {
     super.initState();
-    _checkLightLevel();
+    _initializeCamera();
   }
 
-  void _checkLightLevel() {
-    // 模拟光线检测
-    setState(() {
-      _lightLevel = 0.5; // 示例值
-      _isTorchOn = _lightLevel < 0.3;
-    });
+  Future<void> _initializeCamera() async {
+    if (cameras.isEmpty) return;
+
+    controller = CameraController(
+      cameras[0],
+      ResolutionPreset.medium,
+      enableAudio: false,
+    );
+
+    try {
+      await controller!.initialize();
+      if (mounted) setState(() {});
+    } catch (e) {
+      print('Error initializing camera: $e');
+    }
   }
 
-  void _takePicture() async {
+  Future<void> _takePicture() async {
+    if (controller == null || !controller!.value.isInitialized) {
+      showInSnackBar('Error: select a camera first.');
+      return;
+    }
+
     setState(() {
       _isProcessing = true;
     });
 
-    // 模拟拍照过程
-    await Future.delayed(const Duration(seconds: 1));
-
-    setState(() {
-      _isProcessing = false;
-    });
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Photo captured!')),
-      );
+    try {
+      final XFile file = await controller!.takePicture();
+      setState(() {
+        imagePath = file.path;
+        _isProcessing = false;
+      });
+      
+      // 显示拍照成功提示
+      if (mounted) {
+        showInSnackBar('Picture saved to ${file.path}');
+      }
+    } catch (e) {
+      setState(() {
+        _isProcessing = false;
+      });
+      showInSnackBar('Error taking picture: $e');
     }
+  }
+
+  void showInSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller?.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (controller == null || !controller!.value.isInitialized) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Smart Camera')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Smart Camera'),
         actions: [
           IconButton(
             icon: Icon(_isTorchOn ? Icons.flash_on : Icons.flash_off),
-            onPressed: () {
-              setState(() {
-                _isTorchOn = !_isTorchOn;
-              });
+            onPressed: () async {
+              try {
+                setState(() => _isTorchOn = !_isTorchOn);
+                await controller!.setFlashMode(
+                  _isTorchOn ? FlashMode.torch : FlashMode.off,
+                );
+              } catch (e) {
+                showInSnackBar('Error toggling flash: $e');
+              }
             },
           ),
         ],
@@ -88,15 +134,7 @@ class _CameraScreenState extends State<CameraScreen> {
         children: [
           Expanded(
             child: Container(
-              color: Colors.black87,
-              child: Center(
-                child: _isProcessing
-                    ? const CircularProgressIndicator()
-                    : const Text(
-                        'Camera Preview',
-                        style: TextStyle(color: Colors.white),
-                      ),
-              ),
+              child: CameraPreview(controller!),
             ),
           ),
           Container(
