@@ -1,118 +1,37 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Smart Camera</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            background: #000;
-            color: white;
-            font-family: Arial, sans-serif;
-        }
-        
-        #camera {
-            flex: 1;
-            width: 100%;
-            background: #111;
-        }
-        
-        #controls {
-            padding: 20px;
-            text-align: center;
-            background: #222;
-        }
-        
-        button {
-            padding: 12px 24px;
-            font-size: 18px;
-            background: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        
-        button:disabled {
-            background: #666;
-        }
-        
-        #flash {
-            margin-bottom: 10px;
-        }
-    </style>
+  <base href="/smart-camera-web/">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A smart camera web app">
+  
+  <!-- 添加相机权限请求 -->
+  <meta name="permissions-policy" content="camera=*">
+  
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Smart Camera">
+  <link rel="manifest" href="manifest.json">
+  <script>
+    var serviceWorkerVersion = null;
+  </script>
+  <script src="flutter.js" defer></script>
 </head>
 <body>
-    <video id="camera" autoplay playsinline></video>
-    <div id="controls">
-        <div id="flash">
-            <button onclick="toggleFlash()" id="flashButton">Flash: Off</button>
-        </div>
-        <button onclick="takePhoto()" id="captureButton">Take Photo</button>
-    </div>
-    <canvas id="canvas" style="display:none;"></canvas>
-
-    <script>
-        let stream;
-        let flashOn = false;
-
-        async function startCamera() {
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: 'environment',
-                        advanced: [{torch: false}]
-                    }
-                });
-                document.getElementById('camera').srcObject = stream;
-                document.getElementById('captureButton').disabled = false;
-            } catch (err) {
-                alert('Error accessing camera: ' + err.message);
-            }
+  <script>
+    window.addEventListener('load', function(ev) {
+      _flutter.loader.loadEntrypoint({
+        serviceWorker: {
+          serviceWorkerVersion: serviceWorkerVersion,
+        },
+        onEntrypointLoaded: function(engineInitializer) {
+          engineInitializer.initializeEngine().then(function(appRunner) {
+            appRunner.runApp();
+          });
         }
-
-        async function toggleFlash() {
-            if (!stream) return;
-            
-            const track = stream.getVideoTracks()[0];
-            const capabilities = track.getCapabilities();
-            
-            if (capabilities.torch) {
-                flashOn = !flashOn;
-                await track.applyConstraints({
-                    advanced: [{torch: flashOn}]
-                });
-                document.getElementById('flashButton').textContent = 
-                    `Flash: ${flashOn ? 'On' : 'Off'}`;
-            }
-        }
-
-        function takePhoto() {
-            const video = document.getElementById('camera');
-            const canvas = document.getElementById('canvas');
-            const context = canvas.getContext('2d');
-            
-            // 设置 canvas 大小匹配视频流
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            
-            // 在 canvas 上绘制当前视频帧
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            // 转换为图片并下载
-            const image = canvas.toDataURL('image/jpeg');
-            const link = document.createElement('a');
-            link.download = 'photo.jpg';
-            link.href = image;
-            link.click();
-        }
-
-        // 启动相机
-        startCamera();
-    </script>
+      });
+    });
+  </script>
 </body>
 </html>
