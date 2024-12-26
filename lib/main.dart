@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
-
-late List<CameraDescription> cameras;
+import 'dart:html' as html;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  cameras = await availableCameras();
   setUrlStrategy(PathUrlStrategy());
   runApp(const CameraApp());
 }
@@ -32,11 +30,9 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> {
-  CameraController? controller;
+  html.VideoElement? _videoElement;
+  bool _isCameraInitialized = false;
   bool _isTorchOn = false;
-  bool _isProcessing = false;
-  double _lightLevel = 0.0;
-  String? imagePath;
 
   @override
   void initState() {
@@ -45,87 +41,102 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _initializeCamera() async {
-    if (cameras.isEmpty) return;
-
-    controller = CameraController(
-      cameras[0],
-      ResolutionPreset.medium,
-      enableAudio: false,
-    );
-
     try {
-      await controller!.initialize();
-      if (mounted) setState(() {});
+      // 请求相机权限
+      final stream = await html.window.navigator.mediaDevices?.getUserMedia({
+        'video': {
+          'facingMode': 'environment',
+        },
+        'audio': false,
+      });
+
+      if (stream != null) {
+        _videoElement = html.VideoElement()
+          ..srcObject = stream
+          ..autoplay = true
+          ..style.width = '100%'
+          ..style.height = '100%'
+          ..style.objectFit = 'cover';
+
+        // 等待视频元素加载
+        await _videoElement!.onLoadedData.first;
+
+        setState(() {
+          _isCameraInitialized = true;
+        });
+      }
     } catch (e) {
       print('Error initializing camera: $e');
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Camera Error'),
+          content: Text('Please allow camera access to use this app.\nError: $e'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _initializeCamera();
+              },
+              child: Text('Retry'),
+            ),
+          ],
+        ),
+      );
     }
   }
 
   Future<void> _takePicture() async {
-    if (controller == null || !controller!.value.isInitialized) {
-      showInSnackBar('Error: select a camera first.');
+    if (!_isCameraInitialized || _videoElement == null) {
       return;
     }
 
-    setState(() {
-      _isProcessing = true;
-    });
-
     try {
-      final XFile file = await controller!.takePicture();
-      setState(() {
-        imagePath = file.path;
-        _isProcessing = false;
-      });
-      
-      // 显示拍照成功提示
-      if (mounted) {
-        showInSnackBar('Picture saved to ${file.path}');
-      }
-    } catch (e) {
-      setState(() {
-        _isProcessing = false;
-      });
-      showInSnackBar('Error taking picture: $e');
-    }
-  }
+      // 创建 canvas 来捕获视频帧
+      final canvas = html.CanvasElement(
+        width: _videoElement!.videoWidth,
+        height: _videoElement!.videoHeight,
+      );
+      canvas.context2D.drawImage(_videoElement!, 0, 0);
 
-  void showInSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+      // 转换为图片
+      final dataUrl = canvas.toDataUrl('image/png');
+      
+      // 创建下载链接
+      final anchor = html.AnchorElement(href: dataUrl)
+        ..download = 'photo_${DateTime.now().millisecondsSinceEpoch}.png'
+        ..click();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Photo saved!')),
+      );
+    } catch (e) {
+      print('Error taking picture: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to take photo: $e')),
+      );
+    }
   }
 
   @override
   void dispose() {
-    controller?.dispose();
+    if (_videoElement?.srcObject != null) {
+      _videoElement!.srcObject!.getTracks().forEach((track) => track.stop());
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (controller == null || !controller!.value.isInitialized) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Smart Camera')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Smart Camera'),
         actions: [
           IconButton(
             icon: Icon(_isTorchOn ? Icons.flash_on : Icons.flash_off),
-            onPressed: () async {
-              try {
-                setState(() => _isTorchOn = !_isTorchOn);
-                await controller!.setFlashMode(
-                  _isTorchOn ? FlashMode.torch : FlashMode.off,
-                );
-              } catch (e) {
-                showInSnackBar('Error toggling flash: $e');
-              }
+            onPressed: () {
+              setState(() => _isTorchOn = !_isTorchOn);
+              // 在 web 中闪光灯控制可能不可用
             },
           ),
         ],
@@ -134,22 +145,27 @@ class _CameraScreenState extends State<CameraScreen> {
         children: [
           Expanded(
             child: Container(
-              child: CameraPreview(controller!),
+              color: Colors.black,
+              child: _isCameraInitialized
+                  ? HtmlElementView(
+                      viewType: 'video-${DateTime.now().millisecondsSinceEpoch}',
+                      onPlatformViewCreated: (_) {
+                        // 将视频元素添加到 Flutter web 视图
+                        html.document.querySelector('#flutter_video')?.children
+                            .add(_videoElement!);
+                      },
+                    )
+                  : Center(child: CircularProgressIndicator()),
             ),
           ),
           Container(
             padding: const EdgeInsets.all(16.0),
             child: Column(
               children: [
-                Text(
-                  'Light Level: ${(_lightLevel * 100).toStringAsFixed(1)}%',
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const SizedBox(height: 16),
                 ElevatedButton.icon(
-                  onPressed: _isProcessing ? null : _takePicture,
+                  onPressed: _isCameraInitialized ? _takePicture : null,
                   icon: const Icon(Icons.camera),
-                  label: Text(_isProcessing ? 'Processing...' : 'Take Photo'),
+                  label: const Text('Take Photo'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 32,
