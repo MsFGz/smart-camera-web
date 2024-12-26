@@ -5,6 +5,7 @@ import 'dart:html' as html;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 设置 web 路由策略
   setUrlStrategy(PathUrlStrategy());
   runApp(const CameraApp());
 }
@@ -30,17 +31,17 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> {
+  bool _cameraPermissionGranted = false;
   html.VideoElement? _videoElement;
-  bool _isCameraInitialized = false;
   bool _isTorchOn = false;
 
   @override
   void initState() {
     super.initState();
-    _initializeCamera();
+    _requestCameraAccess();
   }
 
-  Future<void> _initializeCamera() async {
+  Future<void> _requestCameraAccess() async {
     try {
       // 请求相机权限
       final stream = await html.window.navigator.mediaDevices?.getUserMedia({
@@ -51,32 +52,30 @@ class _CameraScreenState extends State<CameraScreen> {
       });
 
       if (stream != null) {
-        _videoElement = html.VideoElement()
-          ..srcObject = stream
-          ..autoplay = true
-          ..style.width = '100%'
-          ..style.height = '100%'
-          ..style.objectFit = 'cover';
-
-        // 等待视频元素加载
-        await _videoElement!.onLoadedData.first;
-
         setState(() {
-          _isCameraInitialized = true;
+          _cameraPermissionGranted = true;
+          _videoElement = html.VideoElement()
+            ..srcObject = stream
+            ..autoplay = true
+            ..style.width = '100%'
+            ..style.height = '100%';
         });
+
+        // 将视频元素添加到 DOM
+        html.document.body?.append(_videoElement!);
       }
     } catch (e) {
-      print('Error initializing camera: $e');
+      print('Error accessing camera: $e');
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text('Camera Error'),
-          content: Text('Please allow camera access to use this app.\nError: $e'),
+          title: Text('Camera Access Error'),
+          content: Text('Please allow camera access to use this app.'),
           actions: [
             TextButton(
               onPressed: () {
                 Navigator.pop(context);
-                _initializeCamera();
+                _requestCameraAccess();
               },
               child: Text('Retry'),
             ),
@@ -87,7 +86,10 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _takePicture() async {
-    if (!_isCameraInitialized || _videoElement == null) {
+    if (!_cameraPermissionGranted || _videoElement == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Camera not ready')),
+      );
       return;
     }
 
@@ -99,11 +101,11 @@ class _CameraScreenState extends State<CameraScreen> {
       );
       canvas.context2D.drawImage(_videoElement!, 0, 0);
 
-      // 转换为图片
-      final dataUrl = canvas.toDataUrl('image/png');
-      
+      // 转换为图片 URL
+      final url = canvas.toDataUrl('image/png');
+
       // 创建下载链接
-      final anchor = html.AnchorElement(href: dataUrl)
+      final anchor = html.AnchorElement(href: url)
         ..download = 'photo_${DateTime.now().millisecondsSinceEpoch}.png'
         ..click();
 
@@ -111,18 +113,16 @@ class _CameraScreenState extends State<CameraScreen> {
         SnackBar(content: Text('Photo saved!')),
       );
     } catch (e) {
-      print('Error taking picture: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to take photo: $e')),
+        SnackBar(content: Text('Error taking photo: $e')),
       );
     }
   }
 
   @override
   void dispose() {
-    if (_videoElement?.srcObject != null) {
-      _videoElement!.srcObject!.getTracks().forEach((track) => track.stop());
-    }
+    _videoElement?.srcObject?.getTracks().forEach((track) => track.stop());
+    _videoElement?.remove();
     super.dispose();
   }
 
@@ -130,13 +130,13 @@ class _CameraScreenState extends State<CameraScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Smart Camera'),
+        title: Text('Smart Camera'),
         actions: [
           IconButton(
             icon: Icon(_isTorchOn ? Icons.flash_on : Icons.flash_off),
             onPressed: () {
               setState(() => _isTorchOn = !_isTorchOn);
-              // 在 web 中闪光灯控制可能不可用
+              // 注意：Web 版本可能不支持闪光灯控制
             },
           ),
         ],
@@ -144,30 +144,27 @@ class _CameraScreenState extends State<CameraScreen> {
       body: Column(
         children: [
           Expanded(
-            child: Container(
-              color: Colors.black,
-              child: _isCameraInitialized
+            child: Center(
+              child: _cameraPermissionGranted
                   ? HtmlElementView(
-                      viewType: 'video-${DateTime.now().millisecondsSinceEpoch}',
-                      onPlatformViewCreated: (_) {
-                        // 将视频元素添加到 Flutter web 视图
-                        html.document.querySelector('#flutter_video')?.children
-                            .add(_videoElement!);
+                      viewType: 'video-element',
+                      onPlatformViewCreated: (int id) {
+                        // 视图创建完成后的回调
                       },
                     )
-                  : Center(child: CircularProgressIndicator()),
+                  : CircularProgressIndicator(),
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16.0),
+          Padding(
+            padding: EdgeInsets.all(16.0),
             child: Column(
               children: [
                 ElevatedButton.icon(
-                  onPressed: _isCameraInitialized ? _takePicture : null,
-                  icon: const Icon(Icons.camera),
-                  label: const Text('Take Photo'),
+                  onPressed: _cameraPermissionGranted ? _takePicture : null,
+                  icon: Icon(Icons.camera),
+                  label: Text('Take Photo'),
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
+                    padding: EdgeInsets.symmetric(
                       horizontal: 32,
                       vertical: 16,
                     ),
