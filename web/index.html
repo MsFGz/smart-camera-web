@@ -8,17 +8,22 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Smart Camera">
+  
+  <!-- 添加相机权限元数据 -->
+  <meta name="permissions-policy" content="camera=*">
+  
   <link rel="manifest" href="manifest.json">
   <script>
-    // The value below is injected by flutter build, do not touch.
     var serviceWorkerVersion = null;
   </script>
   <script src="flutter.js" defer></script>
 </head>
 <body>
+  <!-- 添加视频容器 -->
+  <div id="flutter_video"></div>
+  
   <script>
     window.addEventListener('load', function(ev) {
-      // Download main.dart.js
       _flutter.loader.loadEntrypoint({
         serviceWorker: {
           serviceWorkerVersion: serviceWorkerVersion,
